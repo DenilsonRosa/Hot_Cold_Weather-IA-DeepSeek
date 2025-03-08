@@ -629,8 +629,9 @@
         };
 
         class UVService {
-            constructor() {
+            constructor(cache) {
                 this.OPENWEATHER_API_KEY = '6dc1cda2acd1dd343b08e94c35b53e44'; // Chave da OpenWeatherMap
+                this.cache = cache; // Recebe o cache da classe WeatherService
             }
 
             async getUVIndex(lat, lon) {
@@ -646,12 +647,34 @@
                 const sunset = new Date(sunriseSunset.sunset).getTime();
 
                 if (now >= sunrise && now <= sunset) {
+                    const cacheKey = `uv-${lat}-${lon}`;
+                    const cachedData = this.cache.get(cacheKey);
+
+                    // Define o TTL (Time to Live) com base no horário do dia
+                    const isPeakTime = this.isPeakUVTime(now, sunrise, sunset);
+                    const ttl = isPeakTime ? 30 * 60 * 1000 : 60 * 60 * 1000; // 30 minutos no pico, 1 hora fora do pico
+
+                    if (cachedData && (now - cachedData.timestamp) < ttl) {
+                        console.log('Índice UV obtido do cache:', cacheKey);
+                        return cachedData.data; // Retorna os dados do cache
+                    }
+
                     try {
                         console.log('Obtendo índice UV da OpenWeatherMap...');
                         const uvIndex = await this.fetchUVIndex(lat, lon);
+
+                        // Armazena os dados no cache com timestamp
+                        this.cache.set(cacheKey, { data: uvIndex, timestamp: now });
                         return uvIndex;
                     } catch (error) {
                         console.error('Erro ao obter índice UV:', error);
+
+                        // Usa os dados em cache como fallback, se disponível
+                        if (cachedData) {
+                            console.log('Usando dados em cache como fallback.');
+                            return cachedData.data;
+                        }
+
                         return { uv: 0, isDay: true };
                     }
                 } else {
@@ -675,8 +698,14 @@
                     return { uv: data.value, isDay: true };
                 } catch (error) {
                     console.error('Erro ao obter índice UV da OpenWeatherMap:', error);
-                    return { uv: 0, isDay: false };
+                    throw error; // Lança o erro para ser tratado no método getUVIndex
                 }
+            }
+
+            isPeakUVTime(now, sunrise, sunset) {
+                const peakStart = sunrise + (4 * 60 * 60 * 1000); // 4 horas após o nascer do sol
+                const peakEnd = sunset - (4 * 60 * 60 * 1000); // 4 horas antes do pôr do sol
+                return now >= peakStart && now <= peakEnd;
             }
 
             async getSunriseSunset(lat, lon) {
@@ -781,7 +810,7 @@
                 this.OPENWEATHER_API_KEY = '6dc1cda2acd1dd343b08e94c35b53e44';
                 this.refreshInterval = 600000;
                 this.cache = new Map();
-                this.uvService = new UVService();
+                this.uvService = new UVService(this.cache);
             }
 
             async init() {
@@ -895,7 +924,7 @@
                         hourly: 'european_aqi'
                     });
 
-                    // Obtém o índice UV da OpenWeatherMap
+                    // Obtém o índice UV com cache e lógica de atualização
                     const uvIndex = await this.uvService.getUVIndex(lat, lon);
 
                     console.log('Buscando dados de umidade da OpenWeatherMap...');
