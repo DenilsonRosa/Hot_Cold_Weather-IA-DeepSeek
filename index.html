@@ -646,30 +646,38 @@
                 const sunrise = new Date(sunriseSunset.sunrise).getTime();
                 const sunset = new Date(sunriseSunset.sunset).getTime();
 
+                console.log('Horário de nascer do sol:', new Date(sunrise).toLocaleTimeString());
+                console.log('Horário de pôr do sol:', new Date(sunset).toLocaleTimeString());
+                console.log('Agora:', new Date(now).toLocaleTimeString());
+                console.log('É dia?', now >= sunrise && now <= sunset);
+
                 if (now >= sunrise && now <= sunset) {
                     const cacheKey = `uv-${lat}-${lon}`;
                     const cachedData = this.cache.get(cacheKey);
 
-                    // Define o TTL (Time to Live) com base no horário do dia
+                    console.log('Cache antes da atualização:', this.cache);
+
                     const isPeakTime = this.isPeakUVTime(now, sunrise, sunset);
                     const ttl = isPeakTime ? 30 * 60 * 1000 : 60 * 60 * 1000; // 30 minutos no pico, 1 hora fora do pico
 
                     if (cachedData && (now - cachedData.timestamp) < ttl) {
                         console.log('Índice UV obtido do cache:', cacheKey);
-                        return cachedData.data; // Retorna os dados do cache
+                        return cachedData.data;
                     }
 
                     try {
                         console.log('Obtendo índice UV da OpenWeatherMap...');
                         const uvIndex = await this.fetchUVIndex(lat, lon);
 
-                        // Armazena os dados no cache com timestamp
+                        console.log('Resposta da API OpenWeatherMap:', uvIndex);
+
                         this.cache.set(cacheKey, { data: uvIndex, timestamp: now });
+                        console.log('Cache após a atualização:', this.cache);
+
                         return uvIndex;
                     } catch (error) {
                         console.error('Erro ao obter índice UV:', error);
 
-                        // Usa os dados em cache como fallback, se disponível
                         if (cachedData) {
                             console.log('Usando dados em cache como fallback.');
                             return cachedData.data;
