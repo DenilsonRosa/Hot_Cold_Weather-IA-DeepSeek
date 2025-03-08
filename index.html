@@ -16,7 +16,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/weather-icons/2.0.12/css/weather-icons.min.css">
 
     <style>
-        /* Estilos CSS (mantidos iguais ao seu código original) */
+        /* Estilos CSS */
         :root {
             --bg-color: #f8f9fa;
             --text-color: #212529;
@@ -630,74 +630,53 @@
 
         class UVService {
             constructor() {
-                this.UV_API_URL = 'https://api.openuv.io/api/v1/uv';
-                this.UV_API_KEY = 'openuv-6l1xp1rm7z9d1bf-io';
-                this.requestCount = 0;
-                this.maxRequests = 50;
-                this.intervalId = null;
+                this.OPENWEATHER_API_KEY = '6dc1cda2acd1dd343b08e94c35b53e44'; // Chave da OpenWeatherMap
             }
 
             async getUVIndex(lat, lon) {
-                const now = new Date();
+                const now = new Date().getTime();
                 const sunriseSunset = await this.getSunriseSunset(lat, lon);
 
                 if (!sunriseSunset) {
+                    console.error('Não foi possível obter os horários de nascer/pôr do sol.');
                     return { uv: 0, isDay: false };
                 }
 
-                const sunrise = new Date(sunriseSunset.sunrise);
-                const sunset = new Date(sunriseSunset.sunset);
+                const sunrise = new Date(sunriseSunset.sunrise).getTime();
+                const sunset = new Date(sunriseSunset.sunset).getTime();
 
                 if (now >= sunrise && now <= sunset) {
-                    if (this.requestCount < this.maxRequests) {
-                        this.requestCount++;
-                        return this.fetchUVIndex(lat, lon);
-                    } else {
-                        console.log('Limite de requisições atingido.');
-                        return { uv: 0, isDay: true }; // Retorna UV 0 quando o limite é atingido
+                    try {
+                        console.log('Obtendo índice UV da OpenWeatherMap...');
+                        const uvIndex = await this.fetchUVIndex(lat, lon);
+                        return uvIndex;
+                    } catch (error) {
+                        console.error('Erro ao obter índice UV:', error);
+                        return { uv: 0, isDay: true };
                     }
                 } else {
-                    return { uv: 0, isDay: false }; // Retorna UV 0 durante a noite
+                    console.log('Fora do horário de nascer/pôr do sol. Índice UV definido como 0.');
+                    return { uv: 0, isDay: false };
                 }
             }
 
-            async scheduleUVRequests(lat, lon) {
-                const sunriseSunset = await this.getSunriseSunset(lat, lon);
+            async fetchUVIndex(lat, lon) {
+                try {
+                    const response = await fetch(
+                        `https://api.openweathermap.org/data/2.5/uvi?lat=${lat}&lon=${lon}&appid=${this.OPENWEATHER_API_KEY}`
+                    );
 
-                if (!sunriseSunset) {
-                    console.error('Não foi possível obter os horários de nascer e pôr do sol.');
-                    return;
-                }
-
-                const sunrise = new Date(sunriseSunset.sunrise);
-                const sunset = new Date(sunriseSunset.sunset);
-                const now = new Date();
-
-                // Verifica se já é noite
-                if (now >= sunset || now <= sunrise) {
-                    console.log('Fora do horário de nascer/pôr do sol. Nenhuma requisição será feita.');
-                    return;
-                }
-
-                // Calcula o tempo total entre o nascer e o pôr do sol (em milissegundos)
-                const totalDaylightTime = sunset - sunrise;
-
-                // Calcula o intervalo entre cada requisição (em milissegundos)
-                const interval = totalDaylightTime / this.maxRequests;
-
-                console.log(`Intervalo entre requisições: ${interval / 1000} segundos`);
-
-                // Agenda as requisições
-                this.intervalId = setInterval(async () => {
-                    if (this.requestCount < this.maxRequests) {
-                        const uvIndex = await this.fetchUVIndex(lat, lon);
-                        console.log(`Requisição ${this.requestCount + 1}: UV Index = ${uvIndex.uv}`);
-                        this.requestCount++;
-                    } else {
-                        clearInterval(this.intervalId); // Para o intervalo quando o limite é atingido
-                        console.log('Limite de 50 requisições atingido.');
+                    if (!response.ok) {
+                        throw new Error(`Erro na requisição: ${response.status} ${response.statusText}`);
                     }
-                }, interval);
+
+                    const data = await response.json();
+                    console.log('Resposta da OpenWeatherMap:', data);
+                    return { uv: data.value, isDay: true };
+                } catch (error) {
+                    console.error('Erro ao obter índice UV da OpenWeatherMap:', error);
+                    return { uv: 0, isDay: false };
+                }
             }
 
             async getSunriseSunset(lat, lon) {
@@ -711,27 +690,6 @@
                 } catch (error) {
                     console.error('Erro ao obter dados do nascer/pôr do sol:', error);
                     return null;
-                }
-            }
-
-            async fetchUVIndex(lat, lon) {
-                try {
-                    const response = await fetch(`${this.UV_API_URL}?lat=${lat}&lng=${lon}`, {
-                        headers: {
-                            'x-access-token': this.UV_API_KEY,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`Erro na requisição: ${response.status} ${response.statusText}`);
-                    }
-
-                    const data = await response.json();
-                    return { uv: data.result.uv, isDay: true };
-                } catch (error) {
-                    console.error('Erro ao obter índice UV:', error);
-                    return { uv: 0, isDay: false };
                 }
             }
         }
@@ -937,13 +895,13 @@
                         hourly: 'european_aqi'
                     });
 
-                    // Agenda as requisições ao UVService
-                    this.uvService.scheduleUVRequests(lat, lon);
+                    // Obtém o índice UV da OpenWeatherMap
+                    const uvIndex = await this.uvService.getUVIndex(lat, lon);
 
                     console.log('Buscando dados de umidade da OpenWeatherMap...');
                     const openWeatherData = await this.fetchData(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${this.OPENWEATHER_API_KEY}&units=metric`);
 
-                    this.updateUI(weather, airQuality, { uv: 0, isDay: true }, openWeatherData); // Atualiza a UI inicialmente
+                    this.updateUI(weather, airQuality, uvIndex, openWeatherData);
                     this.generateAlerts(weather);
                 } catch (error) {
                     console.error('Erro ao obter dados:', error);
